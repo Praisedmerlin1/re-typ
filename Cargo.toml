@@ -1,0 +1,32 @@
+[package]
+name = "re-typ"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Rewrite LaTeX math as native Typst math and TikZ diagrams as CeTZ or SVG in Markdown."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Praisedmerlin1/re-typ"
+homepage = "https://github.com/Praisedmerlin1/re-typ"
+keywords = ["typst", "markdown", "latex", "tikz", "obsidian"]
+categories = ["command-line-utilities", "text-processing"]
+
+[lib]
+name = "re_typ"
+path = "src/lib.rs"
+
+[[bin]]
+name = "re-typ"
+path = "src/main.rs"
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false }
+# TyLax is the LaTeX -> Typst converter used by TypstMate; it emits native
+# Typst math (no package helpers), which is what Obsidian needs.
+tylax = { version = "0.3.8", default-features = false }
+clap = { version = "4.6", features = ["derive"] }
+anyhow = "1"
+tempfile = "3"
+which = "8"
+walkdir = "2"
+wait-timeout = "0.2"
