@@ -57,9 +57,7 @@ pub fn convert(src: &str, ctx: &mut Ctx) -> Result<String> {
                 match math::convert(&body) {
                     Ok(out) => {
                         ctx.report.math_ok += 1;
-                        for warning in &out.warnings {
-                            ctx.warn(format!("math: {warning} (source: `{body}`)"))?;
-                        }
+                        ctx.note_math(&out.diagnostics);
                         replacements.push((range.start, range.end, math::wrap_inline(&out.body)));
                     }
                     Err(err) => ctx.note_math_failure(&body, &err)?,
@@ -70,9 +68,7 @@ pub fn convert(src: &str, ctx: &mut Ctx) -> Result<String> {
                 match math::convert(&body) {
                     Ok(out) => {
                         ctx.report.math_ok += 1;
-                        for warning in &out.warnings {
-                            ctx.warn(format!("math: {warning} (source: `{body}`)"))?;
-                        }
+                        ctx.note_math(&out.diagnostics);
                         replacements.push((
                             range.start,
                             range.end,

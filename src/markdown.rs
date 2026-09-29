@@ -388,10 +388,7 @@ impl<'a, 'b> Writer<'a, 'b> {
         let wrapped = match math::convert(body) {
             Ok(out) => {
                 self.ctx.report.math_ok += 1;
-                for warning in &out.warnings {
-                    self.ctx
-                        .warn(format!("math: {warning} (source: `{body}`)"))?;
-                }
+                self.ctx.note_math(&out.diagnostics);
                 if display {
                     math::wrap_display_typst(&out.body)
                 } else {

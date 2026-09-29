@@ -1,6 +1,6 @@
 [package]
 name = "re-typ"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Rewrite LaTeX math as native Typst math and TikZ diagrams as CeTZ or SVG in Markdown."

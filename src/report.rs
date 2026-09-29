@@ -5,9 +5,13 @@ use std::path::PathBuf;
 pub struct FileReport {
     pub input: PathBuf,
     pub output: Option<PathBuf>,
+    /// File was left untouched because it already contains Typst/CeTZ.
+    pub skipped: bool,
     pub math_total: usize,
     pub math_ok: usize,
     pub math_failed: Vec<(String, String)>,
+    /// Non-fatal math diagnostics, deduplicated as (message, occurrences).
+    pub math_notes: Vec<(String, usize)>,
     pub tikz_total: usize,
     pub cetz_total: usize,
     pub svgs: Vec<PathBuf>,
@@ -27,13 +31,17 @@ impl FileReport {
         !self.math_failed.is_empty() || !self.warnings.is_empty()
     }
 
-    pub fn print(&self, dry_run: bool) {
+    pub fn print(&self, dry_run: bool, verbose: bool) {
+        println!("{}", self.input.display());
+        if self.skipped {
+            println!("  skipped: already contains Typst/CeTZ");
+            return;
+        }
         let verb = if dry_run {
             "would convert"
         } else {
             "converted"
         };
-        println!("{}", self.input.display());
         println!(
             "  math: {}/{} {}  ({} failed)",
             self.math_ok,
@@ -62,6 +70,15 @@ impl FileReport {
         for warning in &self.warnings {
             println!("  warning: {warning}");
         }
+        if verbose {
+            for (message, count) in &self.math_notes {
+                if *count > 1 {
+                    println!("  note: math: {message} ({count}x)");
+                } else {
+                    println!("  note: math: {message}");
+                }
+            }
+        }
         for note in &self.notes {
             println!("  note: {note}");
         }
@@ -72,6 +89,7 @@ impl FileReport {
 #[derive(Debug, Default)]
 pub struct Summary {
     pub files: usize,
+    pub skipped: usize,
     pub math_total: usize,
     pub math_ok: usize,
     pub math_failed: usize,
@@ -79,6 +97,7 @@ pub struct Summary {
     pub cetz: usize,
     pub svgs: usize,
     pub warnings: usize,
+    pub math_notes: usize,
 }
 
 impl Summary {
@@ -88,6 +107,9 @@ impl Summary {
             ..Default::default()
         };
         for r in reports {
+            if r.skipped {
+                s.skipped += 1;
+            }
             s.math_total += r.math_total;
             s.math_ok += r.math_ok;
             s.math_failed += r.math_failed.len();
@@ -95,6 +117,7 @@ impl Summary {
             s.cetz += r.cetz_total;
             s.svgs += r.svgs.len();
             s.warnings += r.warnings.len();
+            s.math_notes += r.math_notes.iter().map(|(_, count)| count).sum::<usize>();
         }
         s
     }
@@ -102,8 +125,9 @@ impl Summary {
     pub fn print(&self, dry_run: bool) {
         println!();
         println!(
-            "summary: {} file(s), math {}/{}, tikz blocks {} (CeTZ {}, SVG {}), warnings {}",
+            "summary: {} file(s) ({} skipped), math {}/{}, tikz blocks {} (CeTZ {}, SVG {}), warnings {}",
             self.files,
+            self.skipped,
             self.math_ok,
             self.math_total,
             self.tikz_total,
@@ -115,6 +139,12 @@ impl Summary {
             println!(
                 "         {} math span(s) could not be converted",
                 self.math_failed
+            );
+        }
+        if self.math_notes > 0 {
+            println!(
+                "         {} non-fatal math note(s); run with --verbose to list them",
+                self.math_notes
             );
         }
         if dry_run {

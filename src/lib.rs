@@ -63,7 +63,7 @@ pub fn run(cli: Cli) -> Result<i32> {
     for input in &files {
         let report = convert_file(input, &cfg, &tools, preamble.clone())
             .with_context(|| format!("processing {}", input.display()))?;
-        report.print(cfg.dry_run);
+        report.print(cfg.dry_run, cfg.verbose);
         reports.push(report);
     }
 
@@ -73,6 +73,27 @@ pub fn run(cli: Cli) -> Result<i32> {
         return Ok(1);
     }
     Ok(0)
+}
+
+/// Does the document already contain a `typst` or `cetz` fenced block?
+fn contains_typst_block(src: &str) -> bool {
+    let mut in_fence = false;
+    for line in src.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            if in_fence {
+                in_fence = false;
+                continue;
+            }
+            let info = trimmed.trim_matches('`').trim_matches('~').trim();
+            let lang = info.split_whitespace().next().unwrap_or("");
+            if lang.eq_ignore_ascii_case("typst") || lang.eq_ignore_ascii_case("cetz") {
+                return true;
+            }
+            in_fence = true;
+        }
+    }
+    false
 }
 
 fn convert_file(
@@ -103,6 +124,15 @@ pub fn convert_source(
     preamble: Option<String>,
 ) -> Result<(String, FileReport)> {
     let output = fsutil::output_path(input, cfg)?;
+
+    // Notes that are already Typst-based are left completely alone.
+    if cfg.skip_typst_files && contains_typst_block(src) {
+        let mut report = FileReport::new(input.to_path_buf());
+        report.output = Some(output);
+        report.skipped = true;
+        return Ok((src.to_string(), report));
+    }
+
     let asset_dir = fsutil::asset_dir(&output);
     let stem = fsutil::document_stem(input);
 

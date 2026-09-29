@@ -83,9 +83,18 @@ pub struct Cli {
     #[arg(long)]
     pub force: bool,
 
+    /// Process files that already contain `typst`/`cetz` code blocks.
+    /// By default such files are skipped as already migrated.
+    #[arg(long = "no-skip-typst-files")]
+    pub no_skip_typst_files: bool,
+
     /// Treat warnings (failed math, unsupported constructs) as fatal.
     #[arg(long)]
     pub strict: bool,
+
+    /// Print per-file details, including non-fatal math notes.
+    #[arg(short, long)]
+    pub verbose: bool,
 
     /// Parse and report, without writing files or invoking TeX.
     #[arg(long)]

@@ -110,6 +110,21 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Record non-fatal math diagnostics, deduplicated by message.
+    pub fn note_math(&mut self, diagnostics: &[String]) {
+        for diagnostic in diagnostics {
+            match self
+                .report
+                .math_notes
+                .iter_mut()
+                .find(|(message, _)| message == diagnostic)
+            {
+                Some((_, count)) => *count += 1,
+                None => self.report.math_notes.push((diagnostic.clone(), 1)),
+            }
+        }
+    }
+
     /// Record a math conversion failure; returns Err under `--strict`.
     pub fn note_math_failure(&mut self, source: &str, error: &str) -> Result<()> {
         let message = format!("math conversion failed: {error} (source: `{source}`)");

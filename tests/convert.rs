@@ -205,6 +205,66 @@ fn tikz_blocks_are_detected_by_language_and_content() {
 }
 
 #[test]
+fn empty_base_scripts_are_repaired_and_deduplicated_as_notes() {
+    // Common in units/physics notes: `cm$^3$`, `$_{D}$`. LaTeX allows an empty
+    // base; TyLax repairs it to `""^(3)` and reports a non-fatal diagnostic.
+    let src = "Units: cm$^3$ and $_{D}$ and 10$^{th}$ and $^{-3}$.";
+    let (out, report) = convert(src, Format::Md);
+
+    assert_eq!(report.math_ok, 4);
+    assert!(report.math_failed.is_empty());
+    // Not a warning: the conversion is valid.
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    // Deduplicated into a single note with a count.
+    assert_eq!(report.math_notes.len(), 1, "{:?}", report.math_notes);
+    assert_eq!(report.math_notes[0].1, 4);
+    // Repaired to valid Typst.
+    assert!(out.contains("\"\"^(3)"), "{out}");
+    assert!(out.contains("\"\"_(D)"), "{out}");
+}
+
+#[test]
+fn align_environment_is_not_double_wrapped() {
+    let src = "Given\n\n$$\n\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}\n$$\n";
+    let (out, report) = convert(src, Format::Md);
+    assert_eq!(report.math_ok, 1);
+    assert!(!out.contains("$$$"), "double-wrapped dollars:\n{out}");
+    assert!(out.contains("$$a & = b \\ c & = d$$"), "{out}");
+}
+
+#[test]
+fn files_with_typst_blocks_are_skipped() {
+    let src = "Text.\n\n```typst\n#canvas({ import draw: * })\n```\n\nMore $x$.\n";
+    let (out, report) = convert(src, Format::Md);
+    assert!(report.skipped);
+    assert_eq!(out, src);
+    assert_eq!(report.math_total, 0);
+}
+
+#[test]
+fn skip_can_be_overridden() {
+    let src = "Text.\n\n```typst\n#canvas({ import draw: * })\n```\n";
+    let cfg = Config {
+        skip_typst_files: false,
+        ..Default::default()
+    };
+    let (_, report) =
+        convert_source(src, Path::new("doc.md"), &cfg, &Tools::default(), None).unwrap();
+    assert!(!report.skipped);
+}
+
+#[test]
+fn conversion_is_idempotent() {
+    // Running the tool on already-converted output must not mangle it.
+    let once = "Given\n\n$$a & = b \\ c & = d$$\n\nUnits $beta$ and $frac(a, b)$.\n";
+    let (twice, _) = convert(once, Format::Md);
+    assert!(twice.contains("$$a & = b \\ c & = d$$"), "{twice}");
+    assert!(twice.contains("$beta$"), "{twice}");
+    assert!(twice.contains("$frac(a, b)$"), "{twice}");
+    assert!(!twice.contains("b e t a"), "{twice}");
+}
+
+#[test]
 fn malformed_math_does_not_panic() {
     // Malformed LaTeX should be handled gracefully rather than crashing.
     let src = "$\\frac{1}$";

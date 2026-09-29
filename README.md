@@ -38,6 +38,8 @@ need fine-grained control over a PDF build.
 - **Dry run and dependency check.** `--dry-run` previews everything and invokes
   no external tools; `--check-deps` reports your toolchain.
 - **Recursive.** Point it at a vault and it finds every `.md` file.
+- **Safe to re-run.** Already-converted Typst math is detected and left alone,
+  and notes that already contain `typst`/`cetz` blocks are skipped.
 
 ## Requirements
 
@@ -175,7 +177,9 @@ re-typ --tikz-backend svg  notes.md   # images only
 | `--suffix <S>` | Sibling name suffix for Markdown output. Default `.typst` → `notes.typst.md` |
 | `--in-place` | Overwrite the input file (Markdown output only) |
 | `--force` | Rebuild SVG assets even if they already exist |
+| `--no-skip-typst-files` | Also process files that already contain `typst`/`cetz` blocks (skipped by default) |
 | `--strict` | Exit non-zero on any warning (failed math, dropped HTML, failed render) |
+| `-v, --verbose` | Print per-file details, including non-fatal math notes |
 | `--dry-run` | Parse and report; write nothing, invoke no external tools |
 | `--check-deps` | Print the detected toolchain and exit |
 | `--tikz-backend <auto\|cetz\|svg>` | How TikZ blocks are rendered. Default `auto` |
@@ -207,6 +211,15 @@ code blocks. TikZ becomes inline `#canvas(...)` or `#image("notes-1.svg")`.
 
 Because Markdown is not valid Typst in general, use `--format md` for
 Obsidian/TypstMate and `--format typ` for the Typst compiler.
+
+## Skipping notes that already use Typst
+
+Notes that already contain a ` ```typst ` or ` ```cetz ` fenced block are
+treated as migrated and **skipped entirely** (no output written), so re-running
+over a mix of converted and unconverted notes is safe. Pass
+`--no-skip-typst-files` to force processing anyway.
+
+`.typ` files are never picked up as inputs; only `.md` and `.markdown` are.
 
 ## How diagrams are rendered
 
@@ -241,6 +254,17 @@ are unwrapped automatically.
 
 **`unknown variable: ...` when compiling a `.typ`.** A Markdown construct had
 no Typst equivalent. Run without `--strict` and check the reported warnings.
+
+**"N non-fatal math note(s)".** These are not errors: for example, LaTeX allows
+a superscript or subscript with no base (`cm$^3$`, `$_{D}$`) where Typst does
+not. `re-typ` repairs these automatically (`""^(3)`, `""_(D)`) and reports a
+note. Details are hidden by default; pass `--verbose` to list them. They never
+fail a run, with or without `--strict`.
+
+**Can I run it twice?** It is safe to re-run: already-converted Typst math is
+detected and left alone, so `beta` will not become `b e t a`. The only known
+exception is a bare slash fraction, which a second pass may rewrite from `a/b`
+to `a slash b`. Prefer converting once and keeping a backup.
 
 **A CeTZ block renders blank.** The input used something the transpiler dropped.
 Re-run with `--tikz-backend svg`.
