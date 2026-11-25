@@ -38,6 +38,9 @@ need fine-grained control over a PDF build.
 - **Dry run and dependency check.** `--dry-run` previews everything and invokes
   no external tools; `--check-deps` reports your toolchain.
 - **Recursive.** Point it at a vault and it finds every `.md` file.
+- **Themed SVG backgrounds.** SVGs get a white background by default, or a dark
+  one when the diagram is drawn in light colours, so diagrams stay visible in
+  both light and dark Obsidian themes (`--svg-background` overrides this).
 - **Safe to re-run.** Already-converted Typst math is detected and left alone,
   and notes that already contain `typst`/`cetz` blocks are skipped.
 
@@ -183,6 +186,7 @@ re-typ --tikz-backend svg  notes.md   # images only
 | `--dry-run` | Parse and report; write nothing, invoke no external tools |
 | `--check-deps` | Print the detected toolchain and exit |
 | `--tikz-backend <auto\|cetz\|svg>` | How TikZ blocks are rendered. Default `auto` |
+| `--svg-background <auto\|light\|dark\|none>` | Background painted behind SVG diagrams. `auto` picks white for dark ink and dark for light ink. Default `auto` |
 | `--svg-backend <auto\|dvisvgm\|pdftocairo\|pdf2svg\|inkscape>` | PDF → SVG backend |
 | `--tex-engine <auto\|pdflatex\|xelatex\|lualatex\|tectonic>` | TeX engine used for SVG builds |
 | `--tikz-preamble <FILE>` | Extra LaTeX preamble injected into SVG builds |
@@ -202,6 +206,11 @@ Only math spans and TikZ fences change. SVG fallbacks become Obsidian embeds:
 The SVG is written next to the output as `notes-1.svg`, `notes-2.svg`, … in
 document order. Move it wherever your vault expects and adjust the embed path
 if needed.
+
+SVGs are painted with a contrasting background (`--svg-background auto`):
+white for diagrams drawn in dark ink, dark (`#1e1e1e`) for diagrams drawn in
+light ink. Pass `--svg-background none` for transparency, or `--force` to
+regenerate assets created by an older version.
 
 ### `--format typ`
 

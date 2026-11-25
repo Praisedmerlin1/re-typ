@@ -83,7 +83,12 @@ impl<'a> Ctx<'a> {
             return Ok(Some(TikzOutcome::Svg(path)));
         }
 
-        match tikz::compile(content, &self.tools, self.preamble.as_deref()) {
+        match tikz::compile_with_background(
+            content,
+            &self.tools,
+            self.preamble.as_deref(),
+            self.cfg.svg_background,
+        ) {
             Ok(svg) => {
                 let path = self.namer.commit();
                 std::fs::create_dir_all(&self.asset_dir)?;

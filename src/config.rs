@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::cli::{Cli, Format, SvgBackend, TexEngine, TikzBackend};
+use crate::cli::{Cli, Format, SvgBackend, SvgBackground, TexEngine, TikzBackend};
 
 /// Fully resolved conversion options.
 #[derive(Debug, Clone)]
@@ -18,6 +18,7 @@ pub struct Config {
     pub svg_backend: SvgBackend,
     pub tex_engine: TexEngine,
     pub tikz_backend: TikzBackend,
+    pub svg_background: SvgBackground,
     pub tikz_preamble: Option<PathBuf>,
 }
 
@@ -37,6 +38,7 @@ impl Default for Config {
             svg_backend: SvgBackend::Auto,
             tex_engine: TexEngine::Auto,
             tikz_backend: TikzBackend::Auto,
+            svg_background: SvgBackground::Auto,
             tikz_preamble: None,
         }
     }
@@ -74,6 +76,7 @@ impl Config {
             svg_backend: cli.svg_backend,
             tex_engine: cli.tex_engine,
             tikz_backend: cli.tikz_backend,
+            svg_background: cli.svg_background,
             tikz_preamble: cli.tikz_preamble.clone(),
         })
     }

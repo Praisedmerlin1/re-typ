@@ -124,6 +124,28 @@ fn unsupported_constructs_fall_back_to_svg() {
 }
 
 #[test]
+fn spaced_circuitikz_blocks_are_detected() {
+    // Snippets pasted from notes often put a space after control words:
+    // `\usepackage {circuitikz}` / `\begin {circuitikz}`. These are valid
+    // LaTeX and must be picked up like their unspaced forms.
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("circuit.md");
+    let src = "# C\n\n```tikz\n\\usepackage {circuitikz}\n\\begin {document}\n\
+               \\begin {circuitikz}\n\\draw (0,0) to[R] (2,0);\n\
+               \\end {circuitikz}\n\\end {document}\n```\n";
+    let cfg = Config {
+        dry_run: true,
+        ..Default::default()
+    };
+
+    let (_, report) = convert_source(src, &input, &cfg, &Tools::default(), None).unwrap();
+
+    assert_eq!(report.tikz_total, 1);
+    assert_eq!(report.cetz_total, 0);
+    assert_eq!(report.svgs.len(), 1);
+}
+
+#[test]
 fn cetz_support_detection() {
     assert!(!tikz::looks_unsupported_for_cetz(
         "\\begin{tikzpicture}\\draw (0,0)--(1,1);\\end{tikzpicture}"
@@ -195,6 +217,15 @@ fn tikz_blocks_are_detected_by_language_and_content() {
         "\\begin{tikzpicture}\\begin{axis}\\end{axis}\\end{tikzpicture}"
     ));
     assert!(tikz::is_tikz_block("tikz", "\\begin{axis}x\\end{axis}"));
+    // Spaces between a control word and its braces are valid LaTeX.
+    assert!(tikz::is_tikz_block(
+        "tikz",
+        "\\begin {tikzpicture}\\draw (0,0);\\end {tikzpicture}"
+    ));
+    assert!(tikz::is_tikz_block(
+        "tikz",
+        "\\begin {circuitikz}\\draw (0,0) to[R] (2,0);\\end {circuitikz}"
+    ));
     // Wrong language.
     assert!(!tikz::is_tikz_block(
         "rust",

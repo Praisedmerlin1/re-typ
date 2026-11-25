@@ -25,6 +25,11 @@ fn compiles_tikz_to_svg() {
         "not an SVG: {}",
         &text[..200.min(text.len())]
     );
+    assert!(
+        text.contains("data-retyp-background"),
+        "SVG has no background: {}",
+        &text[..200.min(text.len())]
+    );
     eprintln!(
         "used {} + {} -> {} bytes SVG",
         tex.name,

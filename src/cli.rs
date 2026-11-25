@@ -48,6 +48,20 @@ pub enum TikzBackend {
     Svg,
 }
 
+/// Background painted behind rendered SVG diagrams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum SvgBackground {
+    /// White for dark-ink diagrams, dark for light-ink diagrams.
+    #[default]
+    Auto,
+    /// Always paint a white background.
+    Light,
+    /// Always paint a dark background (for diagrams drawn in light colours).
+    Dark,
+    /// Leave the SVG transparent.
+    None,
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "re-typ",
@@ -115,6 +129,10 @@ pub struct Cli {
     /// How to render TikZ blocks: CeTZ code or an SVG image.
     #[arg(long, value_enum, default_value_t = TikzBackend::Auto)]
     pub tikz_backend: TikzBackend,
+
+    /// Background painted behind rendered SVG diagrams.
+    #[arg(long, value_enum, default_value_t = SvgBackground::Auto)]
+    pub svg_background: SvgBackground,
 
     /// Extra LaTeX preamble injected into the generated TikZ standalone document.
     #[arg(long, value_name = "FILE")]
