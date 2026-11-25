@@ -24,9 +24,10 @@ fn md_mode_only_touches_math() {
     assert_eq!(report.math_ok, 3);
     assert!(report.math_failed.is_empty());
 
-    // Math becomes native Typst.
+    // Math becomes native Typst. `a^2` is already valid Typst and is left
+    // byte-for-byte unchanged; `mc^2` needs spacing between the variables.
     assert!(out.contains("$E = m c^(2)$"), "{out}");
-    assert!(out.contains("$a^(2) + b^(2) = c^(2)$"), "{out}");
+    assert!(out.contains("$a^2 + b^2 = c^2$"), "{out}");
     assert!(out.contains("$$frac(sqrt(pi), 2)$$"), "{out}");
 
     // Everything else is preserved verbatim.
@@ -159,6 +160,59 @@ fn cetz_support_detection() {
     assert!(tikz::looks_unsupported_for_cetz(
         "\\begin{tikzcd} A \\arrow[r] & B \\end{tikzcd}"
     ));
+    // Partially supported constructs must fall back to SVG.
+    assert!(tikz::looks_unsupported_for_cetz(
+        "\\begin{tikzpicture}\\foreach \\x in {-2,...,2} {\\draw (\\x,0)--(\\x,1);}\\end{tikzpicture}"
+    ));
+    assert!(tikz::looks_unsupported_for_cetz(
+        "\\begin{tikzpicture}\\coordinate (A) at (0,0);\\draw (A)--(1,1);\\end{tikzpicture}"
+    ));
+    assert!(tikz::looks_unsupported_for_cetz(
+        "\\begin{tikzpicture}\\definecolor{x}{RGB}{0,0,0}\\end{tikzpicture}"
+    ));
+    assert!(tikz::looks_unsupported_for_cetz(
+        "\\begin{tikzpicture}\\begin{scope}[shift={(0,1)}]\\draw (0,0)--(1,1);\\end{scope}\\end{tikzpicture}"
+    ));
+}
+
+#[test]
+fn cetz_with_leftover_latex_labels_falls_back_to_svg() {
+    // TyLax copies node math verbatim, so `\alpha` would survive into the
+    // CeTZ output and fail to compile. The renderer must detect that and use
+    // the SVG backend instead.
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("label.md");
+    let src = "```tikz\n\\begin{tikzpicture}\n\\draw (0,0) -- (1,1);\n\
+               \\node at (0,0) {$\\alpha$};\n\\end{tikzpicture}\n```\n";
+    let cfg = Config {
+        dry_run: true,
+        ..Default::default()
+    };
+
+    let (_, report) = convert_source(src, &input, &cfg, &Tools::default(), None).unwrap();
+
+    assert_eq!(report.tikz_total, 1);
+    assert_eq!(report.cetz_total, 0);
+    assert_eq!(report.svgs.len(), 1);
+}
+
+#[test]
+fn coordinate_heavy_tikz_falls_back_to_svg() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("loop.md");
+    let src = "```tikz\n\\begin{tikzpicture}\n\
+               \\foreach \\x in {-2,...,2} {\\draw (\\x,0) -- (\\x,1);}\n\
+               \\end{tikzpicture}\n```\n";
+    let cfg = Config {
+        dry_run: true,
+        ..Default::default()
+    };
+
+    let (_, report) = convert_source(src, &input, &cfg, &Tools::default(), None).unwrap();
+
+    assert_eq!(report.tikz_total, 1);
+    assert_eq!(report.cetz_total, 0);
+    assert_eq!(report.svgs.len(), 1);
 }
 
 #[test]

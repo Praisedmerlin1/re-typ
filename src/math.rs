@@ -1,4 +1,5 @@
 use tylax::latex_math_to_typst_with_diagnostics;
+use tylax::maps::TYPST_TO_TEX;
 
 /// Result of converting one LaTeX math body.
 pub struct MathOutput {
@@ -70,8 +71,10 @@ fn strip_math_delimiters(output: &str) -> String {
 
 /// Best-effort detection of math that is already in Typst syntax.
 ///
-/// Only fires when the body contains no LaTeX commands (`\name`) but does
-/// contain Typst-only tokens, so ordinary LaTeX is never skipped.
+/// TyLax is not idempotent: feeding it Typst such as `emptyset`, `A inter B`
+/// or `cos theta` turns the identifiers into `e m p t y s e t`,
+/// `A i n t e r B` and `c o s theta`. We therefore leave a body alone when it
+/// contains a known Typst symbol/function or a Typst set literal.
 fn looks_like_typst_math(body: &str) -> bool {
     let has_latex_command = body.char_indices().any(|(i, ch)| {
         ch == '\\'
@@ -84,19 +87,123 @@ fn looks_like_typst_math(body: &str) -> bool {
         return false;
     }
 
-    // Typst math does not use curly braces (it uses `()` and `[]`), so their
-    // presence means this is still LaTeX (e.g. `P_{in}`) and must be converted.
-    if body.contains('{') || body.contains('}') {
+    // `\\` is a line break in LaTeX, but a single `\` followed by whitespace
+    // is a line break in Typst.
+    if body.contains("\\\\") || body.contains("\\{") || body.contains("\\}") {
         return false;
     }
-
-    // Bare alignment ampersands and backslash line breaks are Typst display
-    // math syntax; in LaTeX they only appear inside a `\begin{...}` (braces).
-    if body.contains('&') || body.contains("\\ ") || body.contains("\\\n") || body.ends_with('\\') {
+    if body.contains("\\ ") || body.contains("\\\n") || body.ends_with('\\') {
         return true;
     }
 
-    const TOKENS: &[&str] = &[
+    // Quoted text is Typst syntax (`v_"des"`); LaTeX would use `\text{...}`.
+    if body.contains('"') {
+        return true;
+    }
+
+    // `^3` / `_{D}`: LaTeX permits an empty base; TyLax repairs it to `""^3`.
+    let trimmed = body.trim_start();
+    if trimmed.starts_with('^') || trimmed.starts_with('_') {
+        return false;
+    }
+
+    // `x^{2}` / `P_{in}`: LaTeX script grouping. If the rest of the body is
+    // already Typst (`phi_{n_x n_y n_z} = sin(...)`), converting would space
+    // out `sin`, `frac`, ... so leave the mixed body untouched instead.
+    if has_script_group(body) {
+        let outside = without_script_groups(body);
+        return contains_typst_symbol(&outside);
+    }
+
+    // Typst attach syntax uses parentheses: `x^(2)`, `A_(i)`.
+    if body.contains("^(") || body.contains("_(") {
+        return true;
+    }
+
+    // Bare names from Typst's math vocabulary (`emptyset`, `inter`, `cos`,
+    // `delta`, ...) and function calls such as `frac(` or `floor(`.
+    if contains_typst_symbol(body) {
+        return true;
+    }
+
+    // Bare `{}` set literals (LaTeX would escape them as `\{`/`\}`).
+    if has_typst_set_literal(body) {
+        return true;
+    }
+
+    // `|...|` is valid in both languages and TyLax would only add spaces.
+    if body.contains('|') {
+        return true;
+    }
+
+    // A bare multi-letter word that is not a known Typst name is almost
+    // certainly concatenated LaTeX variables (`mc^2`, `abc`), which Typst
+    // would render as one identifier.
+    if body
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .any(|word| word.len() >= 2)
+    {
+        return false;
+    }
+
+    // Plain math with single-letter identifiers (`a^2`, `t_0`) renders the
+    // same in both languages; leave it byte-for-byte unchanged.
+    true
+}
+
+/// True when a `^` or `_` is followed by a `{` group, possibly after spaces.
+fn has_script_group(body: &str) -> bool {
+    body.char_indices().any(|(index, ch)| {
+        (ch == '^' || ch == '_') && body[index + ch.len_utf8()..].trim_start().starts_with('{')
+    })
+}
+
+/// Remove `^{...}` / `_{...}` groups so LaTeX-only script contents do not
+/// count as Typst identifiers.
+fn without_script_groups(body: &str) -> String {
+    let chars: Vec<char> = body.chars().collect();
+    let mut out = String::with_capacity(body.len());
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        if chars[index] == '^' || chars[index] == '_' {
+            let mut next = index + 1;
+            while next < chars.len() && chars[next].is_whitespace() {
+                next += 1;
+            }
+            if next < chars.len() && chars[next] == '{' {
+                let mut depth = 0usize;
+                while next < chars.len() {
+                    match chars[next] {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                next += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    next += 1;
+                }
+                // Keep words on either side separated.
+                out.push(' ');
+                index = next;
+                continue;
+            }
+        }
+        out.push(chars[index]);
+        index += 1;
+    }
+
+    out
+}
+
+/// True when the body contains a known Typst math identifier or function.
+fn contains_typst_symbol(body: &str) -> bool {
+    // Function-style names that are not in the symbol map.
+    const FUNCTIONS: &[&str] = &[
         "frac(",
         "sqrt(",
         "root(",
@@ -114,89 +221,106 @@ fn looks_like_typst_math(body: &str) -> bool {
         "#math.",
         "#h(",
         "\"\"",
-        "thin",
-        "dot",
-        "slash",
-        "oo",
-        "->",
-        "<=",
-        ">=",
-        "!=",
-        "approx",
-        "equiv",
-        "diff",
     ];
-    if TOKENS.iter().any(|token| body.contains(token)) {
+    if FUNCTIONS.iter().any(|token| body.contains(token)) {
         return true;
     }
 
-    // Typst symbols that TyLax would otherwise split back into letters.
-    const SYMBOLS: &[&str] = &[
-        "alpha",
-        "beta",
-        "gamma",
-        "delta",
-        "epsilon",
-        "varepsilon",
-        "zeta",
-        "eta",
-        "theta",
-        "vartheta",
-        "iota",
-        "kappa",
-        "lambda",
-        "mu",
-        "nu",
-        "xi",
-        "omicron",
-        "pi",
-        "varpi",
-        "rho",
-        "varrho",
-        "sigma",
-        "varsigma",
-        "tau",
-        "upsilon",
-        "phi",
-        "varphi",
-        "chi",
-        "psi",
-        "omega",
-        "Gamma",
-        "Delta",
-        "Theta",
-        "Lambda",
-        "Xi",
-        "Pi",
-        "Sigma",
-        "Upsilon",
-        "Phi",
-        "Psi",
-        "Omega",
-        "infinity",
-        "degree",
+    // Common Typst names missing from TyLax's symbol map.
+    const EXTRA_NAMES: &[&str] = &[
+        "abs",
+        "accent",
         "arrow",
-        "planck",
-        "hbar",
-        "ell",
-        "nabla",
-        "partial",
-        "sum",
-        "product",
-        "integral",
-        "union",
-        "sect",
-        "subset",
-        "supset",
-        "in",
-        "notin",
-        "forall",
-        "exists",
-        "angle",
-        "triangle",
+        "bb",
+        "bold",
+        "cal",
+        "cancel",
+        "ceil",
+        "circlearrowright",
+        "display",
+        "eval",
+        "floor",
+        "frak",
+        "fract",
+        "highlight",
+        "inline",
+        "italic",
+        "limits",
+        "med",
+        "mod",
+        "mono",
+        "norm",
+        "nothing",
+        "overbrace",
+        "primes",
+        "quad",
+        "quo",
+        "rem",
+        "round",
+        "sans",
+        "script",
+        "serif",
+        "slash",
+        "sscript",
+        "subsetneq",
+        "supsetneq",
+        "thick",
+        "thin",
+        "trunc",
+        "upgamma",
+        "uplambda",
+        "upright",
+        "wide",
     ];
-    body.split(|ch: char| !ch.is_ascii_alphabetic())
-        .any(|word| SYMBOLS.contains(&word))
+    if body
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .any(|word| EXTRA_NAMES.contains(&word))
+    {
+        return true;
+    }
+
+    // Unknown `name(` forms are still Typst function calls (`floor(x)`).
+    if has_function_call(body) {
+        return true;
+    }
+
+    TYPST_TO_TEX.keys().any(|key| {
+        if key.chars().all(|c| c.is_ascii_alphanumeric()) {
+            key.len() >= 2
+                && body
+                    .split(|c: char| !c.is_ascii_alphabetic())
+                    .any(|word| word == *key)
+        } else {
+            body.contains(*key)
+        }
+    })
+}
+
+/// True when a multi-letter identifier is immediately followed by `(`.
+fn has_function_call(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_alphabetic() {
+            let start = index;
+            while index < bytes.len() && bytes[index].is_ascii_alphabetic() {
+                index += 1;
+            }
+            if index - start >= 2 && bytes.get(index) == Some(&b'(') {
+                return true;
+            }
+        } else {
+            index += 1;
+        }
+    }
+    false
+}
+
+/// True when the body contains bare braces. LaTeX would escape literal braces
+/// as `\{`/`\}`; script grouping is handled earlier, so any remaining braces
+/// are Typst set literals.
+fn has_typst_set_literal(body: &str) -> bool {
+    body.contains('{') || body.contains('}')
 }
 
 /// Wrap a converted body with inline math delimiters for Markdown/Typst.
@@ -235,14 +359,40 @@ mod tests {
     fn plain_latex_still_converts() {
         assert_eq!(convert(r"\beta").unwrap().body, "beta");
         assert_eq!(convert(r"\frac{a}{b}").unwrap().body, "a/b");
-        // Braces mean it is still LaTeX, even though `in` is a Typst symbol.
+        // Braces used for scripting mean it is still LaTeX, even though `in`
+        // is a Typst symbol.
         assert_eq!(convert(r"P_{in}").unwrap().body, "P_(i n)");
+        assert_eq!(convert(r"x^{2}").unwrap().body, "x^(2)");
+        // Concatenated variables are LaTeX and need spacing.
+        assert_eq!(convert("E = mc^2").unwrap().body, "E = m c^(2)");
     }
 
     #[test]
     fn already_typst_math_is_left_alone() {
-        for body in ["beta", "a & = b \\ c & = d", "frac(a, b)", r#"""(3)"#] {
+        for body in [
+            "beta",
+            "a & = b \\ c & = d",
+            "frac(a, b)",
+            r#"""(3)"#,
+            "emptyset",
+            "A times B",
+            "A inter B = {x ; x in A and x in B }",
+            "cos theta + sin theta",
+            "|a| = 1",
+            "2^(n)",
+            "A_(i)",
+            "t_0",
+            "x^2 + y^2 = r^2",
+            "E = m c^2",
+            "floor(x)",
+        ] {
             assert_eq!(convert(body).unwrap().body, body, "body was: {body}");
         }
+    }
+
+    #[test]
+    fn latex_line_breaks_and_escaped_braces_still_convert() {
+        assert_eq!(convert(r"a \\ b").unwrap().body, r"a \ b");
+        assert_eq!(convert(r"\{1, 2\}").unwrap().body, "{1, 2 }");
     }
 }

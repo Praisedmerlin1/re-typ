@@ -80,10 +80,30 @@ pub fn looks_unsupported_for_cetz(src: &str) -> bool {
         "\\begin{loglogaxis}",
         "tikzcd",
         "\\tikzset",
+        "\\tikzstyle",
         "\\pgfmath",
+        "\\pgfmathsetmacro",
         "\\pgfplotsset",
         "\\newcommand",
         "\\def\\",
+        // Constructs TyLax's TikZ parser only partially supports. Emitting
+        // partially converted CeTZ silently drops axes, loop iterations and
+        // shifted scopes, so route them to the SVG backend instead.
+        "\\foreach",
+        "\\coordinate",
+        "\\definecolor",
+        "\\colorlet",
+        "\\begin{scope}",
+        "\\clip",
+        "\\shade",
+        "\\shadedraw",
+        "\\matrix",
+        "\\pic",
+        "\\graph",
+        "\\calendar",
+        "\\datavisualization",
+        "\\newcounter",
+        "\\setcounter",
     ];
     let src = normalize_control_spacing(src);
     MARKERS.iter().any(|marker| src.contains(marker))
@@ -100,8 +120,22 @@ pub fn cetz_from_tikz(src: &str) -> Option<String> {
     }
 }
 
-/// True when a TyLax CeTZ snippet contains at least one drawing command.
+/// True when a TyLax CeTZ snippet is usable as Typst source.
 fn cetz_is_usable(output: &str) -> bool {
+    // A leftover LaTeX control sequence means TyLax copied a node label,
+    // colour or other argument verbatim. The resulting Typst would not
+    // compile (e.g. `[$x(t) = \delta(t)$]`), so fall back to SVG instead.
+    let has_latex_command = output.char_indices().any(|(i, ch)| {
+        ch == '\\'
+            && output[i + 1..]
+                .chars()
+                .next()
+                .is_some_and(|next| next.is_ascii_alphabetic())
+    });
+    if has_latex_command {
+        return false;
+    }
+
     output.lines().any(|line| {
         let trimmed = line.trim();
         !trimmed.is_empty()
@@ -427,6 +461,7 @@ fn prefers_dark_background(text: &str) -> bool {
     let mut weighted_luminance = 0.0f32;
     let mut weight = 0.0f32;
     let mut saw_white = false;
+    let mut saw_dark_ink = false;
 
     for (kind, value) in paints(text) {
         let Some((r, g, b)) = parse_color(&value) else {
@@ -442,11 +477,19 @@ fn prefers_dark_background(text: &str) -> bool {
                 continue;
             }
         }
+        if luminance < 0.3 {
+            saw_dark_ink = true;
+        }
         let paint_weight = if kind == PaintKind::Stroke { 2.0 } else { 1.0 };
         weighted_luminance += luminance * paint_weight;
         weight += paint_weight;
     }
 
+    // A diagram containing any dark ink is designed for a light canvas. Light
+    // tick marks or grid lines must not tip the average towards dark mode.
+    if saw_dark_ink {
+        return false;
+    }
     if weight == 0.0 {
         // Nothing but white paint: it needs a dark canvas to be visible.
         return saw_white;
@@ -735,6 +778,17 @@ mod tests {
     }
 
     #[test]
+    fn light_grid_lines_do_not_outvote_dark_axes() {
+        let mut svg = String::from("<svg viewBox='0 0 10 10'><path stroke='#000' fill='none'/>");
+        for _ in 0..20 {
+            svg.push_str("<path stroke='#bfbfbf' fill='none'/>");
+        }
+        svg.push_str("</svg>");
+        let out = with_background(&svg, SvgBackground::Auto);
+        assert!(out.contains("fill=\"#ffffff\""), "{out}");
+    }
+
+    #[test]
     fn explicit_backgrounds_override_detection() {
         let svg = "<svg viewBox='0 0 10 10'><path stroke='#fff'/></svg>";
         assert!(with_background(svg, SvgBackground::Light).contains("fill=\"#ffffff\""));
@@ -748,5 +802,16 @@ mod tests {
         let once = with_background(svg, SvgBackground::Auto);
         let twice = with_background(&once, SvgBackground::Auto);
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn cetz_with_leftover_latex_is_rejected() {
+        let good = "#import \"@preview/cetz:0.3.4\": canvas, draw\n\
+                    #canvas({\n  import draw: *\n\n  line((0, 0), (1, 1))\n})\n";
+        assert!(cetz_is_usable(good));
+
+        let bad = "#import \"@preview/cetz:0.3.4\": canvas, draw\n\
+                   #canvas({\n  import draw: *\n\n  content((0, 0), [$\\alpha$])\n})\n";
+        assert!(!cetz_is_usable(bad));
     }
 }
